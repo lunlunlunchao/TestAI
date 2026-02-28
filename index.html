@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI问答/翻译工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        body {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            border-bottom-color: #0078ff;
+            color: #0078ff;
+            font-weight: bold;
+        }
+        .input-area {
+            margin-bottom: 15px;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: vertical;
+            font-size: 16px;
+        }
+        button {
+            background-color: #0078ff;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        button:hover {
+            background-color: #0066cc;
+        }
+        button:disabled {
+            background-color: #999;
+            cursor: not-allowed;
+        }
+        .result-area {
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            font-size: 16px;
+        }
+        .loading {
+            color: #666;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI问答 & 翻译工具</h1>
+        
+        <div class="tabs">
+            <div class="tab active" data-type="chat">AI问答</div>
+            <div class="tab" data-type="translate">翻译</div>
+        </div>
+        
+        <div class="input-area">
+            <textarea id="userInput" placeholder="请输入你想提问的内容（问答）/需要翻译的文字（翻译）..."></textarea>
+        </div>
+        
+        <button id="submitBtn">发送</button>
+        
+        <div id="resultArea" class="result-area"></div>
+    </div>
+
+    <script>
+        // 配置项（替换这里的API密钥和接口地址）
+        const CONFIG = {
+            // 免费获取API密钥：https://platform.deepseek.com/
+            API_KEY: "sk-f3551a02bf714c80bba9bfc321c8193c",
+            API_URL: "https://api.deepseek.com/v1/chat/completions"
+        };
+
+        // DOM元素
+        const tabs = document.querySelectorAll('.tab');
+        const userInput = document.getElementById('userInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const resultArea = document.getElementById('resultArea');
+        
+        let currentType = 'chat'; // 默认是问答模式
+
+        // 切换标签
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentType = tab.dataset.type;
+                
+                // 更新输入框提示
+                if (currentType === 'chat') {
+                    userInput.placeholder = "请输入你想提问的内容，比如：如何学习Python？";
+                } else {
+                    userInput.placeholder = "请输入需要翻译的文字，比如：Hello World 翻译成中文";
+                }
+            });
+        });
+
+        // 提交按钮点击事件
+        submitBtn.addEventListener('click', async () => {
+            const inputText = userInput.value.trim();
+            if (!inputText) {
+                alert('请输入内容！');
+                return;
+            }
+
+            // 准备请求参数
+            let prompt = inputText;
+            if (currentType === 'translate') {
+                prompt = `请翻译以下内容，保持原意准确、语言通顺：\n${inputText}`;
+            }
+
+            // 禁用按钮，显示加载状态
+            submitBtn.disabled = true;
+            resultArea.innerHTML = '<div class="loading">AI正在思考中...</div>';
+
+            try {
+                // 调用AI API
+                const response = await fetch(CONFIG.API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${CONFIG.API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "deepseek-chat",
+                        messages: [
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.7
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`请求失败：${response.status}`);
+                }
+
+                const data = await response.json();
+                const answer = data.choices[0].message.content;
+                
+                // 显示结果
+                resultArea.textContent = answer;
+
+            } catch (error) {
+                resultArea.innerHTML = `<span style="color: red;">出错了：${error.message}</span>`;
+                console.error('API调用错误：', error);
+            } finally {
+                // 恢复按钮状态
+                submitBtn.disabled = false;
+            }
+        });
+
+        // 按回车提交
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>
