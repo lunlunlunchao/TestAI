@@ -1,57 +1,159 @@
+
+$apiKey = "sk-f3551a02bf714c80bba9bfc321c8193c"  # Replace with your API Token
+
 <#
 .SYNOPSIS
-使用DeepSeek API在PowerShell中与模型对话
+Interactive chat with DeepSeek AI (UTF-8 support + loading animation)
 .DESCRIPTION
-通过DeepSeek API Token调用模型，实现简单的文本对话功能
+Pure text version - No emojis, no Chinese, compatible with all PowerShell versions
 #>
 
-# ==================== 配置区域 ====================
-# 替换为你的DeepSeek API Token
-$apiKey = "sk-f3551a02bf714c80bba9bfc321c8193c"
-# DeepSeek API端点（官方默认）
+# ==================== Core Encoding Fix (Required) ====================
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+
+# ==================== Configuration Area ====================
+#$apiKey = "your-deepseek-api-token-here"  # Replace with your API Token
 $apiUrl = "https://api.deepseek.com/v1/chat/completions"
-# 要发送的问题/对话内容
-$userMessage = "请介绍一下PowerShell的主要特点"
-# 使用的模型（可根据需要调整，如deepseek-chat, deepseek-coder等）
 $model = "deepseek-chat"
-# =================================================
+$temperature = 0.7
+$maxTokens = 2048
+# =============================================================
 
-# 构建请求头
-$headers = @{
-    "Authorization" = "Bearer $apiKey"
-    "Content-Type"  = "application/json"
-}
+# Initialize conversation history
+$conversationHistory = @()
 
-# 构建请求体
-$body = @{
-    model    = $model
-    messages = @(
-        @{
-            role    = "user"
-            content = $userMessage
-        }
+# Welcome message (no emojis)
+Clear-Host
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "      DeepSeek Interactive Chat Tool      " -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Type 'exit'/'quit' to end conversation" -ForegroundColor Gray
+Write-Host "Type 'clear'/'reset' to clear history`n" -ForegroundColor Gray
+
+# Define loading animation function (no emojis)
+function Show-LoadingAnimation {
+    param(
+        [string]$Message = "Waiting for response",
+        [ref]$StopLoading
     )
-    temperature = 0.7  # 随机性，0-1之间，值越高回答越多样
-    max_tokens  = 2048 # 最大生成token数
-} | ConvertTo-Json
-
-try {
-    # 发送请求到DeepSeek API
-    Write-Host "正在请求DeepSeek API...`n" -ForegroundColor Cyan
-    $response = Invoke-RestMethod -Uri $apiUrl -Method Post -Headers $headers -Body $body -ErrorAction Stop
-
-    # 解析并输出响应结果
-    Write-Host "=== DeepSeek 回复 ===" -ForegroundColor Green
-    $response.choices[0].message.content
-    Write-Host "`n=== 结束 ===" -ForegroundColor Green
-
-    # 可选：输出完整的响应信息（便于调试）
-    # Write-Host "`n完整响应信息：" -ForegroundColor Gray
-    # $response | ConvertTo-Json -Depth 10
+    
+    # Loading animation characters (rotating effect)
+    $loadingChars = @("/", "-", "\", "|")
+    $i = 0
+    
+    # Show animation until stop signal is triggered
+    while (-not $StopLoading.Value) {
+        # Overwrite current line with loading animation (plain text)
+        Write-Host "`r$Message $($loadingChars[$i % 4])" -ForegroundColor Cyan -NoNewline
+        $i++
+        Start-Sleep -Milliseconds 100
+    }
+    
+    # Clear loading line (compatible syntax)
+    $emptyString = Get-String -Length ($Message.Length + 4)
+    Write-Host "`r$emptyString`r" -NoNewline
 }
-catch {
-    # 错误处理
-    Write-Host "`n请求失败！错误信息：" -ForegroundColor Red
-    Write-Host "状态码：$($_.Exception.Response.StatusCode)" -ForegroundColor Red
-    Write-Host "错误详情：$($_.ErrorDetails.Message)" -ForegroundColor Red
+
+# Main conversation loop
+while ($true) {
+    # Get user input
+    $userInput = Read-Host -Prompt "You"
+    
+    # 1. Exit conversation
+    if ($userInput -in "exit", "quit") {
+        Write-Host "`nConversation ended, thank you for using!`n" -ForegroundColor Green
+        break
+    }
+
+    # 2. Clear conversation history
+    if ($userInput -in "clear", "reset") {
+        $conversationHistory = @()
+        Write-Host "Conversation history cleared`n" -ForegroundColor Yellow
+        continue
+    }
+
+    # 3. Handle empty input
+    if ([string]::IsNullOrWhiteSpace($userInput)) {
+        Write-Host "Input cannot be empty, please try again`n" -ForegroundColor Red
+        continue
+    }
+
+    # Add user input to conversation history
+    $conversationHistory += @{
+        role    = "user"
+        content = $userInput
+    }
+
+    # Build API request body
+    $requestBody = @{
+        model       = $model
+        messages    = $conversationHistory
+        temperature = $temperature
+        max_tokens  = $maxTokens
+    } | ConvertTo-Json -Depth 10
+
+    try {
+        # Initialize stop loading signal
+        $stopLoading = $false
+        
+        # Start loading animation (background job)
+        $loadingJob = Start-Job -ScriptBlock ${function:Show-LoadingAnimation} -ArgumentList "Waiting for response", ([ref]$stopLoading)
+        
+        # Send API request
+        $response = Invoke-RestMethod `
+            -Uri $apiUrl `
+            -Method Post `
+            -Headers @{
+                "Authorization" = "Bearer $apiKey"
+                "Content-Type"  = "application/json"
+            } `
+            -Body $requestBody `
+            -ErrorAction Stop
+
+        # Stop loading animation
+        $stopLoading = $true
+        Wait-Job $loadingJob | Out-Null
+        Remove-Job $loadingJob
+
+        # Parse and output response (plain text)
+        $assistantReply = $response.choices[0].message.content
+        Write-Host "DeepSeek: " -ForegroundColor Green -NoNewline
+        Write-Host $assistantReply
+        Write-Host ""  # Empty line separator
+
+        # Add AI reply to conversation history
+        $conversationHistory += @{
+            role    = "assistant"
+            content = $assistantReply
+        }
+    }
+    catch {
+        # Stop loading animation on error
+        $stopLoading = $true
+        Wait-Job $loadingJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job $loadingJob -ErrorAction SilentlyContinue
+
+        # Error prompt (plain text)
+        Write-Host "`nRequest failed!" -ForegroundColor Red
+        if ($_.Exception.Response) {
+            Write-Host "   Status Code: $($_.Exception.Response.StatusCode)" -ForegroundColor Red
+        }
+        Write-Host "   Error Details: $($_.ErrorDetails.Message)`n" -ForegroundColor Red
+        
+        # Remove invalid user input from history
+        $conversationHistory = $conversationHistory[0..($conversationHistory.Count - 2)]
+    }
+}
+
+# Helper function: Generate empty string (compatible with all PowerShell versions)
+function Get-String {
+    param([int]$Length)
+    # Replace string multiplication with compatible syntax (no emojis)
+    $emptyStr = [System.String]::Empty
+    for ($i=0; $i -lt $Length; $i++) {
+        $emptyStr += " "
+    }
+    return $emptyStr
 }
