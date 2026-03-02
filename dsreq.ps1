@@ -1,4 +1,3 @@
-
 $apiKey = "sk-f3551a02bf714c80bba9bfc321c8193c"  # Replace with your API Token
 
 <#
