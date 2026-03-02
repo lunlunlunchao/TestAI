@@ -19,6 +19,8 @@ $apiUrl = "https://api.deepseek.com/v1/chat/completions"
 $model = "deepseek-chat"
 $temperature = 0.7
 $maxTokens = 2048
+# Loading message shown while waiting for DeepSeek response
+$LoadingMessage = "Please wait until DeepSeek returns..."
 # =============================================================
 
 # Initialize conversation history
@@ -35,7 +37,7 @@ Write-Host "Type 'clear'/'reset' to clear history`n" -ForegroundColor Gray
 # Define loading animation function (no emojis)
 function Show-LoadingAnimation {
     param(
-        [string]$Message = "Waiting for response",
+        [string]$Message = "Please wait until DeepSeek returns...",
         [ref]$StopLoading
     )
     
@@ -102,10 +104,10 @@ while ($true) {
         $task = $client.PostAsync($apiUrl, $content)
 
         # Show loading animation in the main thread while async task runs
-        $loadingChars = @("/", "-", "\\", "|")
+        $loadingChars = @("/", "-", "\", "|")
         $i = 0
         while (-not $task.IsCompleted) {
-            Write-Host "`rWaiting for response $($loadingChars[$i % 4])" -ForegroundColor Cyan -NoNewline
+            Write-Host "`r$LoadingMessage $($loadingChars[$i % 4])" -ForegroundColor Cyan -NoNewline
             Start-Sleep -Milliseconds 120
             $i++
         }
