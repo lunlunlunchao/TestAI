@@ -1,30 +1,30 @@
-$apiKey = "sk-f3551a02bf714c80bba9bfc321c8193c"  # Your API Token
+$apiKey = "sk-f3551a02bf714c80bba9bfc321c8193c"  # Replace with your API Token
 
 <#
 .SYNOPSIS
-DeepSeek Chat - No Byte[] Error + Fix Chinese Garbled Text
+Interactive chat with DeepSeek AI (UTF-8 support + loading animation)
 .DESCRIPTION
-1. Remove all Byte[] operations to avoid type error
-2. Fix Chinese garbled text with simple encoding settings
-3. Compatible with PowerShell 5.1/7+
+Pure text version - No emojis, no Chinese, compatible with all PowerShell versions
 #>
 
-# ==================== Simplified Encoding Fix (No Byte[]) ====================
-# Fix console display encoding
-$OutputEncoding = [System.Text.UTF8Encoding]::new()
-[Console]::OutputEncoding = $OutputEncoding
-[Console]::InputEncoding = $OutputEncoding
+# ==================== Core Encoding Fix (Required) ====================
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
 
-# ==================== Configuration ====================
+# ==================== Configuration Area ====================
+#$apiKey = "your-deepseek-api-token-here"  # Replace with your API Token
 $apiUrl = "https://api.deepseek.com/v1/chat/completions"
 $model = "deepseek-chat"
 $temperature = 0.7
 $maxTokens = 2048
-# ======================================================
+# =============================================================
 
+# Initialize conversation history
 $conversationHistory = @()
 
-# Welcome message
+# Welcome message (no emojis)
 Clear-Host
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "      DeepSeek Interactive Chat Tool      " -ForegroundColor Cyan
@@ -32,49 +32,61 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Type 'exit'/'quit' to end conversation" -ForegroundColor Gray
 Write-Host "Type 'clear'/'reset' to clear history`n" -ForegroundColor Gray
 
-# Simple loading animation (no complex functions)
-function Show-Loading {
-    param([ref]$StopLoading)
-    $chars = @("/", "-", "\", "|")
+# Define loading animation function (no emojis)
+function Show-LoadingAnimation {
+    param(
+        [string]$Message = "Waiting for response",
+        [ref]$StopLoading
+    )
+    
+    # Loading animation characters (rotating effect)
+    $loadingChars = @("/", "-", "\", "|")
     $i = 0
+    
+    # Show animation until stop signal is triggered
     while (-not $StopLoading.Value) {
-        Write-Host "`rWaiting for response $($chars[$i % 4])" -ForegroundColor Cyan -NoNewline
+        # Overwrite current line with loading animation (plain text)
+        Write-Host "`r$Message $($loadingChars[$i % 4])" -ForegroundColor Cyan -NoNewline
         $i++
         Start-Sleep -Milliseconds 100
     }
-    Write-Host "`r                                      `r" -NoNewline
+    
+    # Clear loading line (compatible syntax)
+    $emptyString = Get-String -Length ($Message.Length + 4)
+    Write-Host "`r$emptyString`r" -NoNewline
 }
 
 # Main conversation loop
 while ($true) {
+    # Get user input
     $userInput = Read-Host -Prompt "You"
     
-    # Exit logic
+    # 1. Exit conversation
     if ($userInput -in "exit", "quit") {
         Write-Host "`nConversation ended, thank you for using!`n" -ForegroundColor Green
         break
     }
-    
-    # Clear history logic
+
+    # 2. Clear conversation history
     if ($userInput -in "clear", "reset") {
         $conversationHistory = @()
         Write-Host "Conversation history cleared`n" -ForegroundColor Yellow
         continue
     }
-    
-    # Empty input check
+
+    # 3. Handle empty input
     if ([string]::IsNullOrWhiteSpace($userInput)) {
         Write-Host "Input cannot be empty, please try again`n" -ForegroundColor Red
         continue
     }
 
-    # Add user input to history
+    # Add user input to conversation history
     $conversationHistory += @{
         role    = "user"
         content = $userInput
     }
 
-    # Build request body (simple JSON)
+    # Build API request body
     $requestBody = @{
         model       = $model
         messages    = $conversationHistory
@@ -83,54 +95,65 @@ while ($true) {
     } | ConvertTo-Json -Depth 10
 
     try {
-        # Start simple loading animation
-        $stopLoading = $false
-        $loadingJob = Start-Job -ScriptBlock ${function:Show-Loading} -ArgumentList ([ref]$stopLoading)
-        
-        # ==================== Core Fix: Use Invoke-RestMethod with UTF-8 ====================
-        # No Byte[] operations - avoid type error completely
-        $response = Invoke-RestMethod `
-            -Uri $apiUrl `
-            -Method Post `
-            -Headers @{
-                "Authorization" = "Bearer $apiKey"
-                "Content-Type"  = "application/json"
-            } `
-            -Body $requestBody `
-            -ErrorAction Stop `
-            -ContentType "application/json; charset=utf-8"
+        # Use HttpClient/async task to avoid job serialization and preserve UTF-8
+        $client = New-Object System.Net.Http.HttpClient
+        $client.DefaultRequestHeaders.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $apiKey)
+        $content = New-Object System.Net.Http.StringContent($requestBody, [System.Text.Encoding]::UTF8, 'application/json')
+        $task = $client.PostAsync($apiUrl, $content)
 
-        # Stop loading animation
-        $stopLoading = $true
-        Wait-Job $loadingJob | Out-Null
-        Remove-Job $loadingJob
+        # Show loading animation in the main thread while async task runs
+        $loadingChars = @("/", "-", "\\", "|")
+        $i = 0
+        while (-not $task.IsCompleted) {
+            Write-Host "`rWaiting for response $($loadingChars[$i % 4])" -ForegroundColor Cyan -NoNewline
+            Start-Sleep -Milliseconds 120
+            $i++
+        }
+        Write-Host "`r" -NoNewline
 
-        # Get response content and fix display
+        # Get HTTP response and read body as string (UTF-8 preserved)
+        $responseMessage = $task.Result
+        $responseBody = $responseMessage.Content.ReadAsStringAsync().Result
+        $response = $responseBody | ConvertFrom-Json
+
+        # Parse and output response (plain text)
         $assistantReply = $response.choices[0].message.content
-        # Force UTF-8 display for Chinese characters
-        $utf8Reply = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($assistantReply))
-        
         Write-Host "DeepSeek: " -ForegroundColor Green -NoNewline
-        Write-Host $utf8Reply
+        Write-Host $assistantReply
         Write-Host ""  # Empty line separator
 
-        # Add AI reply to history
+        # Add AI reply to conversation history
         $conversationHistory += @{
             role    = "assistant"
-            content = $utf8Reply
+            content = $assistantReply
         }
     }
     catch {
-        # Stop loading on error
-        $stopLoading = $true
-        Wait-Job $loadingJob -ErrorAction SilentlyContinue | Out-Null
-        Remove-Job $loadingJob -ErrorAction SilentlyContinue
+        # Error prompt (plain text)
+        Write-Host "`nRequest failed!" -ForegroundColor Red
+        if ($_.Exception.Response) {
+            Write-Host "   Status Code: $($_.Exception.Response.StatusCode)" -ForegroundColor Red
+        }
+        if ($_.ErrorDetails) {
+            Write-Host "   Error Details: $($_.ErrorDetails.Message)`n" -ForegroundColor Red
+        } else {
+            Write-Host "   Error: $($_.Exception.Message)`n" -ForegroundColor Red
+        }
 
-        # Simple error message (no complex details)
-        Write-Host "`nRequest failed! Error: $($_.Exception.Message)`n" -ForegroundColor Red
-        
-        # Remove invalid input
-        $conversationHistory = $conversationHistory[0..($conversationHistory.Count - 2)]
-        exit
+        # Remove invalid user input from history (safe check)
+        if ($conversationHistory.Count -gt 0) {
+            $conversationHistory = $conversationHistory[0..($conversationHistory.Count - 2)]
+        }
     }
+}
+
+# Helper function: Generate empty string (compatible with all PowerShell versions)
+function Get-String {
+    param([int]$Length)
+    # Replace string multiplication with compatible syntax (no emojis)
+    $emptyStr = [System.String]::Empty
+    for ($i=0; $i -lt $Length; $i++) {
+        $emptyStr += " "
+    }
+    return $emptyStr
 }
