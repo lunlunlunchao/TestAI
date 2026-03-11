@@ -80,6 +80,27 @@
             white-space: pre-wrap;
             font-size: 16px;
         }
+        .message {
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            max-width: 85%;
+            line-height: 1.4;
+        }
+        .message.user {
+            background: #0078ff;
+            color: #fff;
+            margin-left: auto;
+        }
+        .message.assistant {
+            background: #efefef;
+            color: #222;
+            margin-right: auto;
+        }
+        .conversation-wrapper {
+            max-height: 360px;
+            overflow-y: auto;
+        }
         .loading {
             color: #666;
             text-align: center;
@@ -100,9 +121,12 @@
             <textarea id="userInput" placeholder="请输入你想提问的内容（问答）/需要翻译的文字（翻译）..."></textarea>
         </div>
         
-        <button id="submitBtn">发送</button>
-        
-        <div id="resultArea" class="result-area"></div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+            <button id="submitBtn">发送</button>
+            <button id="clearBtn" style="background:#e74c3c;">清除记录</button>
+        </div>
+
+        <div id="conversation" class="result-area" aria-live="polite"></div>
     </div>
 
     <script>
@@ -117,9 +141,57 @@
         const tabs = document.querySelectorAll('.tab');
         const userInput = document.getElementById('userInput');
         const submitBtn = document.getElementById('submitBtn');
-        const resultArea = document.getElementById('resultArea');
+        const clearBtn = document.getElementById('clearBtn');
+        const conversationEl = document.getElementById('conversation');
         
         let currentType = 'chat'; // 默认是问答模式
+
+        // conversation storage
+        const STORAGE_KEY = 'chatHistory_v1';
+        let messages = [];
+
+        // Load saved history
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) messages = JSON.parse(saved);
+        } catch (e) {
+            console.warn('无法读取历史记录：', e);
+            messages = [];
+        }
+
+        function saveHistory() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+            } catch (e) {
+                console.warn('无法保存历史记录：', e);
+            }
+        }
+
+        function renderConversation() {
+            conversationEl.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'conversation-wrapper';
+            messages.forEach(msg => {
+                const m = document.createElement('div');
+                m.className = `message ${msg.role === 'user' ? 'user' : 'assistant'}`;
+                m.textContent = msg.content;
+                wrapper.appendChild(m);
+            });
+            conversationEl.appendChild(wrapper);
+            // scroll to bottom
+            wrapper.scrollTop = wrapper.scrollHeight;
+        }
+
+        // Initial render
+        renderConversation();
+
+        // 清除历史按钮
+        clearBtn.addEventListener('click', () => {
+            if (!confirm('确定要清除所有聊天记录吗？')) return;
+            messages = [];
+            saveHistory();
+            renderConversation();
+        });
 
         // 切换标签
         tabs.forEach(tab => {
@@ -144,18 +216,36 @@
                 alert('请输入内容！');
                 return;
             }
-
             // 准备请求参数
             let prompt = inputText;
             if (currentType === 'translate') {
                 prompt = `请翻译以下内容，保持原意准确、语言通顺：\n${inputText}`;
             }
 
+            // add user message to history and render
+            if (currentType === 'chat') {
+                messages.push({ role: 'user', content: inputText });
+                saveHistory();
+                renderConversation();
+            }
+
             // 禁用按钮，显示加载状态
             submitBtn.disabled = true;
-            resultArea.innerHTML = '<div class="loading">AI正在思考中...</div>';
+            const loadingEl = document.createElement('div');
+            loadingEl.className = 'loading';
+            loadingEl.textContent = 'AI正在思考中...';
+            conversationEl.appendChild(loadingEl);
+            conversationEl.scrollTop = conversationEl.scrollHeight;
 
             try {
+                // 构建 messages 参数：如果是chat模式，包含历史；翻译模式单独发送
+                let apiMessages = [];
+                if (currentType === 'chat') {
+                    apiMessages = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+                } else {
+                    apiMessages = [{ role: 'user', content: prompt }];
+                }
+
                 // 调用AI API
                 const response = await fetch(CONFIG.API_URL, {
                     method: 'POST',
@@ -165,9 +255,7 @@
                     },
                     body: JSON.stringify({
                         model: "deepseek-chat",
-                        messages: [
-                            { role: "user", content: prompt }
-                        ],
+                        messages: apiMessages,
                         temperature: 0.7
                     })
                 });
@@ -177,17 +265,29 @@
                 }
 
                 const data = await response.json();
-                const answer = data.choices[0].message.content;
-                
-                // 显示结果
-                resultArea.textContent = answer;
+                const answer = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || (data.answer || '未收到回复');
+
+                // 保存 assistant 回复并渲染（仅聊天模式保留历史）
+                if (currentType === 'chat') {
+                    messages.push({ role: 'assistant', content: answer });
+                    saveHistory();
+                    renderConversation();
+                } else {
+                    // 翻译/单次显示：清除临时 loading 并显示结果
+                    conversationEl.innerHTML = '';
+                    const out = document.createElement('div');
+                    out.className = 'message assistant';
+                    out.textContent = answer;
+                    conversationEl.appendChild(out);
+                }
 
             } catch (error) {
-                resultArea.innerHTML = `<span style="color: red;">出错了：${error.message}</span>`;
+                conversationEl.innerHTML = `<span style="color: red;">出错了：${error.message}</span>`;
                 console.error('API调用错误：', error);
             } finally {
                 // 恢复按钮状态
                 submitBtn.disabled = false;
+                userInput.value = '';
             }
         });
 
